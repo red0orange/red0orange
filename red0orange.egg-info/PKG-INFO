@@ -1,0 +1,20 @@
+Metadata-Version: 2.1
+Name: red0orange
+Version: 0.0.1
+Summary: red0orange First Pip Package
+Home-page: https://github.com/red0orange/red0orange
+Author: red0orange
+Author-email: 1031957961@qq.com
+License: UNKNOWN
+Description: 
+        
+        # Package
+        
+        red0orange First Pip Package
+        
+        
+Platform: UNKNOWN
+Classifier: Programming Language :: Python :: 3
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Description-Content-Type: text/markdown
