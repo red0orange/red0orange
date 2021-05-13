@@ -43,7 +43,6 @@ def plot_bars(axe, x_labels, ys, y_labels=None, bar_width=0.28):
     axe.set_xticklabels(x_labels)
     axe.legend()
 
-
     def autolabel(rects):
         """Attach a text label above each bar in *rects*, displaying its height."""
         for rect in rects:

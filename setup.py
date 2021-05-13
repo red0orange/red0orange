@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="red0orange",
-    version="0.0.1",
+    version="0.0.3",
     author="red0orange",
     author_email="1031957961@qq.com",
     description="red0orange First Pip Package",

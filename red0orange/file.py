@@ -5,6 +5,8 @@
 @desc: 文件相关的一些通用utils
 """
 import os
+import csv
+import pandas as pd
 import mimetypes
 from pathlib import Path
 
@@ -61,3 +63,68 @@ def get_image_files(path, extensions=None, recurse:bool=False, exclude=None,incl
 
 def get_image_extensions():
     return list(set(k for k, v in mimetypes.types_map.items() if v.startswith('image/')))
+
+
+def write_csv(data, csv_path):
+    with open(csv_path, 'w') as f:
+        writer = csv.writer(f)
+        for line in data:
+            writer.writerow(line)
+    pass
+
+
+def read_csv(csv_path):
+    result = []
+    with open(csv_path, 'r') as f:
+        reader = csv.reader(f)
+        for line in reader:
+            result.append(line)
+    return result
+
+
+class DatasetInfo(object):
+    # 一个封装类别信息的类，传入类别信息的csv路径，即可有一些方便的函数，自行查看使用
+    def __init__(self, path):
+        self.path = path
+        self.df = pd.read_csv(path)
+        pass
+
+    def class_transform(self):
+        class_transform = self.df[['origin_class_id', 'train_class_id']].to_numpy()
+        class_transform = {k: v for k, v in class_transform}
+        return class_transform
+
+    def origin_class_dict(self):
+        class_transform = self.df[['origin_class_id', 'origin_class_name']].to_numpy()
+        class_transform = {k: v for k, v in class_transform}
+        return class_transform
+
+    def train_class_dict(self):
+        class_transform = self.df[['train_class_id', 'train_class_name']].to_numpy()
+        class_transform = {k: v for k, v in class_transform}
+        return class_transform
+
+    @staticmethod
+    def create_dataset_info_csv_by_class_count(path, ori_class_id, ori_class_name, class_count, class_num_thres=100):
+        assert len(ori_class_id) == len(ori_class_name) == len(class_count), '长度不相等不正常'
+        train_class_id = []
+        i = 1
+        for class_id, class_num in zip(ori_class_id, class_count):
+            if class_num <= class_num_thres:
+                train_class_id.append(0)
+            else:
+                train_class_id.append(i)
+                i += 1
+        DatasetInfo.create_dataset_info_csv(path, ori_class_id, ori_class_name, train_class_id, class_count)
+        pass
+
+    @staticmethod
+    def create_dataset_info_csv(path, ori_class_id, ori_class_name, train_class_id, class_count):
+        assert len(ori_class_id) == len(ori_class_name) == len(train_class_id) == len(class_count), '长度不相等不正常'
+        df = pd.DataFrame()
+        df['origin_class_id'] = ori_class_id
+        df['train_class_id'] = train_class_id
+        df['ori_class_name'] = ori_class_name
+        df['class_count'] = class_count
+        df.to_csv(path, index=False)
+        pass

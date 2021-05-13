@@ -138,8 +138,7 @@ class Args(SingleModel):
 option = Args()
 
 if __name__ == '__main__':
-    base_option = BaseOption()
-    option.init(base_option, expand_mode=True, code_mode=True)
+    option.init(BaseOption, expand_mode=True, code_mode=True)
 
     print('==========================================')
     parser = argparse.ArgumentParser()
