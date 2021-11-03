@@ -1,6 +1,8 @@
 dist/
 red0orange.egg-info/
 
+*.json
+
 *.ipynb_checkpoints*
 *.ipynb
 outcomes
