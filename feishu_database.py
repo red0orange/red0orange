@@ -171,26 +171,34 @@ class MultiDimDocmentApi(object):
         response = requests.post(url, headers=headers, data=json.dumps(payload))
         return response
 
-    def smart_new_bitable(self, title):
-        authorization_token = self.get_authorization_token()
+    # def smart_new_bitable(self, title):  # 目前弃用，用不上了
+    #     """利用API创建一个所有者为应有的多维表格
+
+    #     Args:
+    #         title ([type]): [description]
+
+    #     Returns:
+    #         [type]: [description]
+    #     """
+    #     authorization_token = self.get_authorization_token()
         
-        # 获取当前用户主体得云空间根目录文件夹token
-        root_folder_token = self.get_root_meta()
+    #     # 获取当前用户主体得云空间根目录文件夹token
+    #     root_folder_token = self.get_root_meta()
 
-        # 新建多维表格
-        url = "https://open.feishu.cn/open-apis/drive/explorer/v2/file/{}".format(root_folder_token)
-        headers = {
-            'Authorization': 'Bearer {}'.format(authorization_token),
-            'Content-Type': 'application/json; charset=utf-8'
-        }
-        payload = {"type": "bitable", "title": title}
-        response = requests.request("POST", url, headers=headers, data=json.dumps(payload))
-        file_token = json.loads(response.text)["data"]["token"]
+    #     # 新建多维表格
+    #     url = "https://open.feishu.cn/open-apis/drive/explorer/v2/file/{}".format(root_folder_token)
+    #     headers = {
+    #         'Authorization': 'Bearer {}'.format(authorization_token),
+    #         'Content-Type': 'application/json; charset=utf-8'
+    #     }
+    #     payload = {"type": "bitable", "title": title}
+    #     response = requests.request("POST", url, headers=headers, data=json.dumps(payload))
+    #     file_token = json.loads(response.text)["data"]["token"]
 
-        # 为用户主体添加权限
-        response = self.change_file_permission(file_token, user_id=self.user_id, perm="edit")
+    #     # 为用户主体添加权限
+    #     response = self.change_file_permission(file_token, user_id=self.user_id, perm="edit")
 
-        return response
+    #     return response
 
     def smart_add_record(self, record_dict):
         """智能添加记录，自动检查有效性、新增列
@@ -318,22 +326,22 @@ if __name__ == "__main__":
 
     api = MultiDimDocmentApi(json_data["user_id"], json_data["app_id"], json_data["app_secret"], json_data["app_token"], json_data["table_id"])
     
-    test_new_record_1 = {
-        "实验记录": "smart new record 测试",
-        "多选": [1, 2, 3], 
-        "单选": 1,
-    }
-    test_new_record_2 = {
-        "实验记录": "smart new record 测试",
-        "多选": [0.1, 0.2, 0.3], 
-        "单选": 0.1
-    }
-    test_new_record_3 = {
-        "实验记录": "smart new record 测试",
-        "附件": "results.csv"
-    }
+    # test_new_record_1 = {
+    #     "实验记录": "smart new record 测试",
+    #     "多选": [1, 2, 3], 
+    #     "单选": 1,
+    # }
+    # test_new_record_2 = {
+    #     "实验记录": "smart new record 测试",
+    #     "多选": [0.1, 0.2, 0.3], 
+    #     "单选": 0.1
+    # }
+    # test_new_record_3 = {
+    #     "实验记录": "smart new record 测试",
+    #     "附件": "results.csv"
+    # }
 
-    response = api.smart_add_record(test_new_record_1)
-    response = api.smart_add_record(test_new_record_2)
-    response = api.smart_add_record(test_new_record_3)
+    # response = api.smart_add_record(test_new_record_1)
+    # response = api.smart_add_record(test_new_record_2)
+    # response = api.smart_add_record(test_new_record_3)
     pass
