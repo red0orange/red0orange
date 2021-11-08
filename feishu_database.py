@@ -1,6 +1,7 @@
 import os
 import json
 import requests
+import warnings
 from requests_toolbelt import MultipartEncoder
 
 class MultiDimDocmentApi(object):
@@ -282,7 +283,7 @@ class MultiDimDocmentApi(object):
                     file_tokens = []
                     for file_path in value:
                         if not os.path.exists(file_path):
-                            print("文件路径：{} 不存在，跳过该文件上传".format(file_path))
+                            warnings.warn("文件路径：{} 不存在，跳过该文件上传".format(file_path))
                             continue
                         _, file_token = self.upload_file(file_path)
                         file_tokens.append(file_token)
@@ -293,32 +294,69 @@ class MultiDimDocmentApi(object):
 
         # 打印出错误的columns，将不添加
         for name in error_columns_names:
-            print("'{}' column value is unvalid, not add".format(name))
+            warnings.warn("'{}' column value is unvalid, not add".format(name))
 
         response = self.add_record({"fields": final_record_dict})
         return response
 
 
 class FeishuDatabase(object):
+    """飞书多维表格的接口，用于深度学习的实验记录
+    """
     def __init__(self) -> None:
+        """构造函数，但内部不构造，必须手动调用init函数完成对象的构造
+        """
         super().__init__()
         self.table_api = None
+        self.record_dict = {}  # 提供一份内部的记录dict，可在多处地方调用更新，最后形成一份完整的dict
         pass
 
     def init(self, user_id, app_id, app_secret, app_token, table_id):
+        """手动调用的构造函数
+
+        Args:
+            user_id (str): 用户主体的ID，在管理后台->组织架构->成员->点击自己的头像
+            app_id (str): 创建应用的app id
+            app_secret (str): 创建应用的app secret
+            app_token (str): 需要操作的多维表格的token
+            table_id (str): 需要操作的数据表token
+        """
         self.table_api = MultiDimDocmentApi(user_id, app_id, app_secret, app_token, table_id)
         pass
 
-    def new_record(self, exp_name, record_dict):
+    def record_add_keys(self, record_dict):
+        """向内部的record dict添加记录的内容
+
+        Args:
+            record_dict (dict): 需要新增的记录的内容
+        """
+        for key, value in record_dict.items():
+            if key in self.record_dict.keys():
+                warnings.warn("record key '{}' has been record, it will be overrided.".format(key))
+            self.record_dict[key] = value
+        pass
+
+    def record_push(self, exp_name, record_dict=None):
+        """push record dict到飞书多维表格，如果不提供现成的record_dict就用内部的record_dict
+
+        Args:
+            exp_name (str): 实验名称
+            record_dict (dict, optional): 需要push的record. Defaults to None.
+        """
         if self.table_api is None:
-            print("必须先初始化database!")
+            warnings.warn("必须先初始化database!")
             return 
+        if record_dict is None:
+            record_dict = self.record_dict
+            pass
         final_dict = record_dict.copy()
         final_dict["实验记录"] = exp_name
         self.table_api.smart_add_record(final_dict)
         pass
 
+
 feishu_database = FeishuDatabase()
+
 
 if __name__ == "__main__":
     with open('feishu_app.json','r',encoding='utf8') as fp:
