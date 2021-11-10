@@ -249,22 +249,20 @@ class MultiDimDocmentApi(object):
                         final_record_dict[key] = value
                     except BaseException:
                         error_columns_names.append(key)
-                elif exist_column_type == 4:
-                    # 判断是否为列表，如果不是则无效
-                    if isinstance(value, list):
-                        value = [str(i) for i in value]
-                        options = exists_columns_list[index]["property"]["options"]
-                        options_names = [i["name"] for i in options]
-                        options = [{"name": i} for i in set(options_names + value)]
-                        new_field_info_dict = {
-                            "property": {
-                                "options": options
-                            }
+                elif exist_column_type == 4:  # 多选
+                    if not isinstance(value, list):
+                        value = [value]
+                    value = [str(i) for i in value]
+                    options = exists_columns_list[index]["property"]["options"]
+                    options_names = [i["name"] for i in options]
+                    options = [{"name": i} for i in set(options_names + value)]
+                    new_field_info_dict = {
+                        "property": {
+                            "options": options
                         }
-                        self.update_column(exists_columns_list[index]["field_id"], new_field_info_dict)
-                        final_record_dict[key] = value
-                    else:
-                        error_columns_names.append(key)
+                    }
+                    self.update_column(exists_columns_list[index]["field_id"], new_field_info_dict)
+                    final_record_dict[key] = value
                 elif exist_column_type == 3:
                     value = str(value)
                     options = exists_columns_list[index]["property"]["options"]
@@ -332,8 +330,17 @@ class FeishuDatabase(object):
         """
         for key, value in record_dict.items():
             if key in self.record_dict.keys():
-                warnings.warn("record key '{}' has been record, it will be overrided.".format(key))
-            self.record_dict[key] = value
+                if isinstance(value, list) or isinstance(self.record_dict[key], list):
+                    if not isinstance(self.record_dict[key], list):
+                        self.record_dict[key] = [self.record_dict[key]]
+                    if not isinstance(value, list):
+                        value = [value]
+                    self.record_dict[key].extend(value)
+                else:
+                    warnings.warn("record key '{}' has been record, it will be overrided.".format(key))
+                    self.record_dict[key] = value
+            else:
+                self.record_dict[key] = value
         pass
 
     def record_push(self, exp_name, record_dict=None):
