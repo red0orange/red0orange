@@ -52,9 +52,13 @@ class BaseOption(object):
 
 
 class Args(SingleModel):
-    def init(self, option, expand_mode=False, code_mode=False):
+    # flags
+    NO_VALUE = 0
+
+    def init(self, option, expand_mode=False, code_mode=False, create_dir=True):
         self.expand_mode = expand_mode
         self.code_mode = code_mode
+        self.create_dir = create_dir
         self.parse_args(option)
 
         np.random.seed(self.seed)
@@ -79,9 +83,10 @@ class Args(SingleModel):
         else:
             self.save_root = os.path.join(self.outcome_root, self.description, self.name)
         # 若本身已存在这个路径，就删除（一般情况下不会删除，因为有加时间戳），然后再创建这个文件夹
-        if os.path.exists(self.save_root):
-            shutil.rmtree(self.save_root)
-        os.makedirs(self.save_root)
+        if self.create_dir:
+            if os.path.exists(self.save_root):
+                shutil.rmtree(self.save_root)
+            os.makedirs(self.save_root)
 
         return self
 
@@ -106,7 +111,11 @@ class Args(SingleModel):
 
         if expand_mode:
             for arg_name, arg_value in parse_args.items():
-                sys.argv.extend(["--{}".format(arg_name), "{}".format(arg_value)])
+                arg_name = arg_name.replace("_", "-")
+                if arg_value == self.NO_VALUE:
+                    sys.argv.extend(["--{}".format(arg_name)])
+                else:
+                    sys.argv.extend(["--{}".format(arg_name), "{}".format(arg_value)])
             args_ = parse_args
         else:
             if not code_mode:
