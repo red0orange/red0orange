@@ -1,13 +1,168 @@
 import torch
 import numpy as np
+import matplotlib.pyplot as plt
+from pathlib import Path
 
 from .utils import box_iou
 
 
+def plot_pr_curve(px, py, ap, save_dir='pr_curve.png', names=()):
+    # Precision-recall curve
+    fig, ax = plt.subplots(1, 1, figsize=(9, 6), tight_layout=True)
+    py = np.stack(py, axis=1)
+
+    if 0 < len(names) < 21:  # display per-class legend if < 21 classes
+        for i, y in enumerate(py.T):
+            ax.plot(px, y, linewidth=1, label=f'{names[i]} {ap[i, 0]:.3f}')  # plot(recall, precision)
+    else:
+        ax.plot(px, py, linewidth=1, color='grey')  # plot(recall, precision)
+
+    ax.plot(px, py.mean(1), linewidth=3, color='blue', label='all classes %.3f mAP@0.5' % ap[:, 0].mean())
+    ax.set_xlabel('Recall')
+    ax.set_ylabel('Precision')
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    plt.legend(bbox_to_anchor=(1.04, 1), loc="upper left")
+    fig.savefig(Path(save_dir), dpi=250)
+
+
+def plot_mc_curve(px, py, save_dir='mc_curve.png', names=(), xlabel='Confidence', ylabel='Metric'):
+    # Metric-confidence curve
+    fig, ax = plt.subplots(1, 1, figsize=(9, 6), tight_layout=True)
+
+    if 0 < len(names) < 21:  # display per-class legend if < 21 classes
+        for i, y in enumerate(py):
+            ax.plot(px, y, linewidth=1, label=f'{names[i]}')  # plot(confidence, metric)
+    else:
+        ax.plot(px, py.T, linewidth=1, color='grey')  # plot(confidence, metric)
+
+    y = py.mean(0)
+    ax.plot(px, y, linewidth=3, color='blue', label=f'all classes {y.max():.2f} at {px[y.argmax()]:.3f}')
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    plt.legend(bbox_to_anchor=(1.04, 1), loc="upper left")
+    fig.savefig(Path(save_dir), dpi=250)
+
+
+def ap_per_class(tp, conf, pred_cls, target_cls, plot=False, save_dir='.', names=()):
+    """ Compute the average precision, given the recall and precision curves.
+    Source: https://github.com/rafaelpadilla/Object-Detection-Metrics.
+    # Arguments
+        tp:  True positives (nparray, nx1 or nx10).
+        conf:  Objectness value from 0-1 (nparray).
+        pred_cls:  Predicted object classes (nparray).
+        target_cls:  True object classes (nparray).
+        plot:  Plot precision-recall curve at mAP@0.5
+        save_dir:  Plot save directory
+    # Returns
+        The average precision as computed in py-faster-rcnn.
+    """
+
+    # Sort by objectness
+    i = np.argsort(-conf)
+    tp, conf, pred_cls = tp[i], conf[i], pred_cls[i]
+
+    # Find unique classes
+    unique_classes = np.unique(target_cls)
+    nc = unique_classes.shape[0]  # number of classes, number of detections
+
+    # Create Precision-Recall curve and compute AP for each class
+    px, py = np.linspace(0, 1, 1000), []  # for plotting
+    ap, p, r = np.zeros((nc, tp.shape[1])), np.zeros((nc, 1000)), np.zeros((nc, 1000))
+    for ci, c in enumerate(unique_classes):
+        # 这个类别的predict indices
+        i = pred_cls == c
+        n_l = (target_cls == c).sum()  # number of labels
+        n_p = i.sum()  # number of predictions
+
+        if n_p == 0 or n_l == 0:
+            continue
+        else:
+            # Accumulate FPs and TPs
+            fpc = (1 - tp[i]).cumsum(0)
+            tpc = tp[i].cumsum(0)
+
+            # Recall
+            recall = tpc / (n_l + 1e-16)  # recall curve
+            r[ci] = np.interp(-px, -conf[i], recall[:, 0], left=0)  # negative x, xp because xp decreases
+
+            # Precision
+            precision = tpc / (tpc + fpc)  # precision curve
+            p[ci] = np.interp(-px, -conf[i], precision[:, 0], left=1)  # p at pr_score
+
+            # AP from recall-precision curve
+            for j in range(tp.shape[1]):
+                ap[ci, j], mpre, mrec = compute_ap(recall[:, j], precision[:, j])
+                if plot and j == 0:
+                    py.append(np.interp(px, mrec, mpre))  # precision at mAP@0.5
+
+    # Compute F1 (harmonic mean of precision and recall)
+    f1 = 2 * p * r / (p + r + 1e-16)
+    if plot:
+        plot_pr_curve(px, py, ap, Path(save_dir) / 'PR_curve.png', names)
+        plot_mc_curve(px, f1, Path(save_dir) / 'F1_curve.png', names, ylabel='F1')
+        plot_mc_curve(px, p, Path(save_dir) / 'P_curve.png', names, ylabel='Precision')
+        plot_mc_curve(px, r, Path(save_dir) / 'R_curve.png', names, ylabel='Recall')
+
+    i = f1.mean(0).argmax()  # max F1 index
+    return p[:, i], r[:, i], ap, f1[:, i], unique_classes.astype('int32')
+
+
+def compute_ap(recall, precision):
+    """ Compute the average precision, given the recall and precision curves
+    # Arguments
+        recall:    The recall curve (list)
+        precision: The precision curve (list)
+    # Returns
+        Average precision, precision curve, recall curve
+    """
+
+    # Append sentinel values to beginning and end
+    mrec = np.concatenate(([0.], recall, [recall[-1] + 0.01]))
+    mpre = np.concatenate(([1.], precision, [0.]))
+
+    # Compute the precision envelope
+    mpre = np.flip(np.maximum.accumulate(np.flip(mpre)))
+
+    # Integrate area under curve
+    method = 'interp'  # methods: 'continuous', 'interp'
+    if method == 'interp':
+        x = np.linspace(0, 1, 101)  # 101-point interp (COCO)
+        ap = np.trapz(np.interp(x, mrec, mpre), x)  # integrate
+    else:  # 'continuous'
+        i = np.where(mrec[1:] != mrec[:-1])[0]  # points where x axis (recall) changes
+        ap = np.sum((mrec[i + 1] - mrec[i]) * mpre[i + 1])  # area under curve
+
+    return ap, mpre, mrec
+
+
 def cal_metrics(num_classes, preds, targets, iou_thres):
-    # input format
-    # preds include pred, pred per line (x1, y1, x2, y2, conf, class_id)
-    # targets include target, target per line (class_id, x1, y1, x2, y2)
+    """计算目标检测的关键指标
+
+    Args:
+        num_classes (int): 类别数量
+        preds (list): 所有预测box，每个元素为二维数组，columns的格式为 (x1, y1, x2, y2, conf, class_id)
+        targets (list): 所有真实标签，每个元素为二维数组，columns的格式为 (class_id, x1, y1, x2, y2)
+        iou_thres (float): iou_thres
+
+    Returns:
+        precision: 
+        recall: 
+        ap: 
+        cls_count:
+        pred_count:
+    """
+    preds = [torch.Tensor(i) for i in preds]
+    targets = [torch.Tensor(i) for i in targets]
+    preds = [i.cpu() for i in preds]
+    targets = [i.cpu() for i in targets]
+
+    all_tp = []
+    all_pred_conf = []
+    all_pred_cls = []
+    all_target_cls = []
 
     cls_tp_num = torch.zeros(num_classes, dtype=torch.int)
     cls_fp_num = torch.zeros(num_classes, dtype=torch.int)
@@ -22,18 +177,36 @@ def cal_metrics(num_classes, preds, targets, iou_thres):
         # custom statistics per image
         nl = len(labels)
         tcls = labels[:, 0].tolist() if nl else []  # target class
-        if len(pred) == 0:
+
+        tp = torch.zeros((pred.shape[0], 1), dtype=torch.int16)
+        pred_conf = torch.Tensor([])
+        pred_cls = torch.Tensor([])
+        target_cls = torch.Tensor([])
+        # Predictions
+        if len(pred) == 0 or nl == 0:
             if nl:
+                # 如果有标注无预测
+                target_cls = labels[:, 0]
                 for per_label in tcls:
                     cls_fn_num[int(per_label)] += 1
                     cls_label_num[int(per_label)] += 1
                 pass
-            continue
+            if len(pred):
+                # 如果有预测无标注
+                pred_conf = pred[:, 4]
+                pred_cls = pred[:, 5]
+                for per_pred_cls in pred[:, 5]:
+                    cls_fp_num[int(per_pred_cls)] += 1
+                    cls_pred_num[int(per_pred_cls)] += 1
+                pass
+        else:
+            # 如果都有，就正常计算下去
+            tp = torch.zeros((pred.shape[0], 1), dtype=torch.int16)
+            pred_conf = pred[:, 4]
+            pred_cls = pred[:, 5]
+            target_cls = labels[:, 0]
 
-        # Predictions
-        predn = pred.clone()
-        if nl:
-            detected = []  # target indices
+            predn = pred.clone()
             tcls_tensor = labels[:, 0]
 
             # target boxes
@@ -51,6 +224,7 @@ def cal_metrics(num_classes, preds, targets, iou_thres):
                         detected_label.append(i[j].item())
                         detected_pred.append(j)
                         cls_tp_num[int(pred[j, 5].item())] += 1
+                        tp[j] = 1
                         if len(detected_label) == nl:  # all targets already located in image
                             break
                     pass
@@ -64,45 +238,27 @@ def cal_metrics(num_classes, preds, targets, iou_thres):
                 if i not in detected_label:
                     cls_fn_num[int(tcls_tensor[i].item())] += 1
                 pass
+        all_tp.append(tp)
+        all_pred_cls.append(pred_cls)
+        all_pred_conf.append(pred_conf)
+        all_target_cls.append(target_cls)
 
-            # 遍历每个类别
-            # 从原来计算AP的方法修改得到，注意遍历类别一定要遍历预测、标注的所有类别，如果按照原来的只遍历标注的类别，
-            # 在for循环内就只能计算得到TP是正确的，FP和FN要在for循环结束后一次性用总的pred、label进行计算，否则就会
-            # 漏掉很多错误的标注。
+    # precision = np.array(cls_tp_num / (cls_tp_num + cls_fp_num))
+    # recall    = np.array(cls_tp_num / (cls_tp_num + cls_fn_num))
+    # cls_count = np.array(cls_label_num)
+    # pred_count = np.array(cls_pred_num)
 
-            # for cls in torch.unique(torch.cat([pred[:, 5], tcls_tensor])):
-            #     # 取得这一类别的target indices和predict indices, 因此后面只需要考虑位置匹配
-            #     ti = (cls == tcls_tensor).nonzero(as_tuple=False).view(-1)  # prediction indices
-            #     pi = (cls == pred[:, 5]).nonzero(as_tuple=False).view(-1)  # target indices
-            #     # Search for detections
-            #     tp_num = 0
-            #     if ti.shape[0]:
-            #         if pi.shape[0]:
-            #             # Prediction to target ious
-            #             # pred_num * 1, 取得每个pred与所有target中最大iou的iou值和对应的target的id
-            #             ious, i = box_iou(predn[pi, :4], tbox[ti]).max(1)  # best ious, indices
-            #
-            #             # Append detections
-            #             detected_set = set()
-            #             for j in (ious > iouv[0]).nonzero(as_tuple=False):
-            #                 d = ti[i[j]]  # detected target
-            #                 if d.item() not in detected_set:
-            #                     detected_set.add(d.item())
-            #                     detected.append(d)
-            #                     # TODO
-            #                     tp_num += 1
-            #                     if len(detected) == nl:  # all targets already located in image
-            #                         break
-            #     cls_tp_num[int(cls.item())] += tp_num
-            #     cls_fp_num[int(cls.item())] += (pi.shape[0] - tp_num)
-            #     cls_fn_num[int(cls.item())] += (ti.shape[0] - tp_num)
-            #     cls_label_num[int(cls.item())] += ti.shape[0]
-            #     cls_pred_num[int(cls.item())] += pi.shape[0]
+    # 改为用官方的方法
+    all_tp = torch.cat(all_tp, dim=0)
+    all_pred_cls = torch.cat(all_pred_cls, dim=0)
+    all_pred_conf = torch.cat(all_pred_conf, dim=0)
+    all_target_cls = torch.cat(all_target_cls, dim=0)
+    print(all_tp.shape)
+    print(all_pred_cls.shape)
+    print(all_pred_conf.shape)
+    print(all_target_cls.shape)
 
-    # 得到最终指标
-    precision = np.array(cls_tp_num / (cls_tp_num + cls_fp_num))
-    recall    = np.array(cls_tp_num / (cls_tp_num + cls_fn_num))
-    cls_count = np.array(cls_label_num)
-    pred_count = np.array(cls_pred_num)
+    p, r, ap, f1, ap_class = ap_per_class(all_tp, all_pred_conf, all_pred_cls, all_target_cls, plot=False)
+    ap_class = ap_class.tolist()
 
-    return precision, recall, cls_count, pred_count
+    return ap_class, p, r, ap

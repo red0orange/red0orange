@@ -86,10 +86,10 @@ class EvaluateData(object):
         self.predict_txt_paths = predict_txt_paths
 
         self.target_boxes = [parse_txt_to_array(i) for i in self.target_txt_paths]
-        self.target_boxes = [i[:, target_boxes_column_order] for i in self.target_boxes if len(i) > 0]
+        self.target_boxes = [i[:, target_boxes_column_order] if len(i) > 0 else i for i in self.target_boxes]
 
         self.predict_boxes = [parse_txt_to_array(i) for i in self.predict_txt_paths]
-        self.predict_boxes = [i[:, predict_boxes_column_order] for i in self.predict_boxes if len(i) > 0]
+        self.predict_boxes = [i[:, predict_boxes_column_order] if len(i) > 0 else i for i in self.predict_boxes]
         pass
 
     @staticmethod
