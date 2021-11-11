@@ -143,7 +143,7 @@ def cal_metrics(num_classes, preds, targets, iou_thres):
 
     Args:
         num_classes (int): 类别数量
-        preds (list): 所有预测box，每个元素为二维数组，columns的格式为 (x1, y1, x2, y2, conf, class_id)
+        preds (list): 所有预测box，每个元素为二维数组，columns的格式为 (class_id, x1, y1, x2, y2, conf)
         targets (list): 所有真实标签，每个元素为二维数组，columns的格式为 (class_id, x1, y1, x2, y2)
         iou_thres (float): iou_thres
 
@@ -193,8 +193,8 @@ def cal_metrics(num_classes, preds, targets, iou_thres):
                 pass
             if len(pred):
                 # 如果有预测无标注
-                pred_conf = pred[:, 4]
-                pred_cls = pred[:, 5]
+                pred_conf = pred[:, 5]
+                pred_cls = pred[:, 0]
                 for per_pred_cls in pred[:, 5]:
                     cls_fp_num[int(per_pred_cls)] += 1
                     cls_pred_num[int(per_pred_cls)] += 1
@@ -202,8 +202,8 @@ def cal_metrics(num_classes, preds, targets, iou_thres):
         else:
             # 如果都有，就正常计算下去
             tp = torch.zeros((pred.shape[0], 1), dtype=torch.int16)
-            pred_conf = pred[:, 4]
-            pred_cls = pred[:, 5]
+            pred_conf = pred[:, 5]
+            pred_cls = pred[:, 0]
             target_cls = labels[:, 0]
 
             predn = pred.clone()
@@ -217,21 +217,21 @@ def cal_metrics(num_classes, preds, targets, iou_thres):
             detected_label = []
             detected_pred = []
             if pred.shape[0]:
-                ious, i = box_iou(predn[:, :4], tbox).max(1)  # best ious, indices
+                ious, i = box_iou(predn[:, 1:5], tbox).max(1)  # best ious, indices
                 for j in (ious > iou_thres).nonzero(as_tuple=False):
-                    if pred[j, 5] == tcls_tensor[i[j]] and (i[j].item() not in detected_set):
+                    if pred[j, 0] == tcls_tensor[i[j]] and (i[j].item() not in detected_set):
                         detected_set.add(i[j])
                         detected_label.append(i[j].item())
                         detected_pred.append(j)
-                        cls_tp_num[int(pred[j, 5].item())] += 1
+                        cls_tp_num[int(pred[j, 0].item())] += 1
                         tp[j] = 1
                         if len(detected_label) == nl:  # all targets already located in image
                             break
                     pass
             for i in range(pred.shape[0]):
-                cls_pred_num[int(pred[i, 5].item())] += 1
+                cls_pred_num[int(pred[i, 0].item())] += 1
                 if i not in detected_pred:
-                    cls_fp_num[int(pred[i, 5].item())] += 1
+                    cls_fp_num[int(pred[i, 0].item())] += 1
                 pass
             for i in range(tcls_tensor.shape[0]):
                 cls_label_num[int(tcls_tensor[i].item())] += 1
