@@ -253,10 +253,6 @@ def cal_metrics(num_classes, preds, targets, iou_thres):
     all_pred_cls = torch.cat(all_pred_cls, dim=0)
     all_pred_conf = torch.cat(all_pred_conf, dim=0)
     all_target_cls = torch.cat(all_target_cls, dim=0)
-    print(all_tp.shape)
-    print(all_pred_cls.shape)
-    print(all_pred_conf.shape)
-    print(all_target_cls.shape)
 
     p, r, ap, f1, ap_class = ap_per_class(all_tp, all_pred_conf, all_pred_cls, all_target_cls, plot=False)
     ap_class = ap_class.tolist()
