@@ -1,6 +1,8 @@
 import math
+import json
 import torch
 import numpy as np
+from PIL import Image
 
 
 def xyxy2xywh(x):
@@ -101,3 +103,90 @@ def box_iou(box1, box2):
     # inter(N,M) = (rb(N,M,2) - lt(N,M,2)).clamp(0).prod(2)
     inter = (torch.min(box1[:, None, 2:], box2[:, 2:]) - torch.max(box1[:, None, :2], box2[:, :2])).clamp(0).prod(2)
     return inter / (area1[:, None] + area2 - inter)  # iou = inter / (area1 + area2 - inter)
+
+
+def create_coco_dataset(image_paths, boxes_list, class_dict, save_path):
+    """创建coco格式的数据集
+
+    Args:
+        image_paths (list): 
+        boxes_list (list): 每个box的数据格式为(class_id, x1, y1, x2, y2)，像素单位数据
+        class_dict (dict): id map to class name
+        save_path (str): json save path
+    """
+    root_dict = {
+        "info": "coco",
+        "license": ['none'],
+        
+        "images": [],
+        "annotations": [],
+        "categories": []
+    }
+    # 先添加类别信息
+    for class_id, class_name in class_dict.items():
+        category_dict = {
+            "id": int(class_id),
+            "name": class_name
+        }
+        root_dict["categories"].append(category_dict)
+    # 同时添加image和boxes
+    assert len(image_paths) == len(boxes_list)
+    box_id = 0
+    for image_id in range(len(image_paths)):
+        image_path = image_paths[image_id]
+        boxes = boxes_list[image_id]
+        
+        image_width, image_height = Image.open(image_path).size
+        image_dict = {
+            "width": image_width,
+            "height": image_height,
+            "id": image_id,
+            "file_name": image_path  # 这里用完整路径，可以不copy图像
+        }
+        root_dict["images"].append(image_dict)
+        
+        for box in boxes: 
+            class_id, x1, y1, x2, y2 = box[:5]
+            x1, y1, x2, y2 = map(int, [x1, y1, x2, y2])
+            annotation_dict = {
+                "id": box_id,
+                "image_id": image_id,
+                "category_id": class_id,
+                "bbox": [x1, y1, x2 - x1, y2 - y1],
+                "segmentation": [[1,1, 2,2, 3,3, 4,4, 5,5, 1,1]],
+                "iscrowd": 0,
+                "area": (x2 - x1) * (y2 - y1)
+            }
+            box_id += 1
+            root_dict["annotations"].append(annotation_dict)
+    # 导出为json
+    with open(save_path, "w") as f:
+        json.dump(root_dict, f, indent=1, separators=(',', ': '))
+    pass
+
+
+def create_coco_result_json(boxes_list, save_path):
+    """制作COCO类型的result数据
+
+    Args:
+        boxes_list (list): 每个box的数据格式为(class_id, x1, y1, x2, y2, score)，像素单位数据
+        save_path (str): json保存路径
+    """
+    root_list = []
+    for image_id in range(len(boxes_list)):
+        boxes = boxes_list[image_id]
+        
+        for box in boxes: 
+            class_id, x1, y1, x2, y2, conf = box[:6]
+            x1, y1, x2, y2 = map(int, [x1, y1, x2, y2])
+            annotation_dict = {
+                "image_id": image_id,
+                "category_id": class_id,
+                "score": conf,
+                "bbox": [x1, y1, x2 - x1, y2 - y1],
+            }
+            root_list.append(annotation_dict)
+    # 导出为json
+    with open(save_path, "w") as f:
+        json.dump(root_list, f, indent=1, separators=(',', ': '))
+    pass
