@@ -1,8 +1,11 @@
 import os
+
+import matplotlib.pyplot as plt
 from PIL import Image
 
 from .utils import *
 from .file_helper import parse_txt_to_array
+from .plot_helper import plt_show_array
 
 from ..file import *
 
@@ -91,6 +94,62 @@ class EvaluateData(object):
         self.predict_boxes = [parse_txt_to_array(i) for i in self.predict_txt_paths]
         self.predict_boxes = [i[:, predict_boxes_column_order] if len(i) > 0 else i for i in self.predict_boxes]
         pass
+
+    def show_box(self, image_indexes, pred_indexes=None, target_indexes=None, figsize_ratio=1):
+        """在选定图中绘制选定矩形框或所有矩形框进行可视化
+
+        Args:
+            image_indexes (list): 需要绘制的图像index，每一元素为一个index，如第1、3张图像则为[0, 2]
+            pred_indexes (list): 需要绘制的pred的boxes indexes，每一元素为一个boxes indexes，如对应两张图像则为[[1, 2], [2, 3]]，如果元素为-1则全画，如果为空集合则不绘制
+            target_indexes (list): 需要绘制的target的boxes indexes，类似pred_indexes，如果元素为-1则全画，如果为空集合则不绘制
+            figsize_ratio (int, optional): figsize整体缩放调整的一个比例. Defaults to 1.
+        """
+        if pred_indexes is None: pred_indexes = [[] for _ in range(len(image_indexes))]
+        if target_indexes is None: target_indexes = [[] for _ in range(len(image_indexes))]
+        assert len(image_indexes) == len(pred_indexes) == len(target_indexes)
+        assert isinstance(image_indexes, list) and isinstance(pred_indexes, list) and isinstance(target_indexes, list)
+        assert len(pred_indexes) == 0 or pred_indexes[0] == -1 or isinstance(pred_indexes[0], list)
+        assert len(target_indexes) == 0 or target_indexes[0] == -1 or isinstance(target_indexes[0], list)
+
+        image_num = len(image_indexes)
+        # max column num is 3
+        fig_row = (image_num // 3) + 1
+        fig_col = 3 if fig_row > 1 else image_num
+        fig, axes = plt.subplots(fig_row, fig_col, figsize=(fig_col * 6 * figsize_ratio, fig_row * 4 * figsize_ratio))
+        # fig, axes = plt.subplots(fig_row, fig_col, figsize=(10, 12))
+        if isinstance(axes, np.ndarray): axes = axes.flatten().tolist()
+        else: axes = [axes]
+        for i in range(fig_row * fig_col - image_num):
+            fig.delaxes(axes[-(1+i)])
+
+        for i, (image_index, pred_boxes_indexes, target_boxes_indexes) in enumerate(zip(image_indexes, pred_indexes, target_indexes)):
+            axe = axes[i]
+            image_array = np.array(Image.open(self.image_paths[image_index]))[..., ::-1]
+            pred_boxes = self.predict_boxes[image_index]
+            target_boxes = self.target_boxes[image_index]
+            if len(pred_boxes) == 0: pred_boxes = np.zeros([0, 4])
+            if len(target_boxes) == 0: target_boxes = np.zeros([0, 4])
+
+            if pred_boxes_indexes == -1: pred_boxes_indexes = range(len(pred_boxes))
+            if target_boxes_indexes == -1: target_boxes_indexes = range(len(target_boxes))
+
+            draw_pred_boxes = pred_boxes[pred_boxes_indexes, 1:5] 
+            draw_pred_boxes_ids = pred_boxes[pred_boxes_indexes, 0] 
+            draw_pred_boxes_confs = pred_boxes[pred_boxes_indexes, -1] 
+            draw_pred_boxes_labels = ["{} - {:.3f}".format(int(i), j) for i, j in zip(draw_pred_boxes_ids, draw_pred_boxes_confs)]
+            draw_target_boxes = target_boxes[target_boxes_indexes, 1:5]
+            draw_target_boxes_ids = target_boxes[target_boxes_indexes, 0] 
+            draw_target_boxes_labels = ["{}".format(int(i)) for i in draw_target_boxes_ids]
+
+            if len(draw_pred_boxes) == 0:  draw_pred_boxes = np.zeros([0, 4])
+            if len(draw_target_boxes) == 0: draw_target_boxes = np.zeros([0, 4])
+            draw_boxes = np.concatenate([draw_pred_boxes, draw_target_boxes], axis=0)
+            draw_color = [(20, 20, 255) for _ in range(len(draw_pred_boxes))] + [(20, 255, 20) for _ in range(len(draw_target_boxes))]
+            draw_labels = draw_pred_boxes_labels + draw_target_boxes_labels
+            plt_show_array(image_array, draw_boxes, draw_color, draw_labels, axe=axe)
+        
+        fig.tight_layout()
+        return fig
 
     @staticmethod
     def apply_map_to_boxes(boxes, func):
