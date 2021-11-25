@@ -115,8 +115,9 @@ class MultiDimDocmentApi(object):
 
         url = "https://open.feishu.cn/open-apis/drive/v1/medias/upload_all"
 
+        f = open(file_path,'rb')
         data = MultipartEncoder(
-            fields={'file_name': file_path, "parent_type": "bitable_file", "parent_node": self.app_token, "size": str(os.stat(file_path).st_size), "file": open(file_path,'rb')}
+            fields={'file_name': file_path, "parent_type": "bitable_file", "parent_node": self.app_token, "size": str(os.stat(file_path).st_size), "file": f}
         )
 
         headers = {
@@ -127,6 +128,7 @@ class MultiDimDocmentApi(object):
         response = requests.post(url, headers=headers, data=data)
         file_token = json.loads(response.text)["data"]["file_token"]
 
+        f.close()
         return response, file_token
 
     def get_root_meta(self):
