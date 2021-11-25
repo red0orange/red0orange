@@ -81,6 +81,10 @@ def read_csv(csv_path):
             result.append(line)
     return result
 
+def write_txt(data, save_path):
+    with open(save_path, "w") as f:
+        f.writelines(data)
+    pass
 
 class DatasetInfo(object):
     # 一个封装类别信息的类，传入类别信息的csv路径，即可有一些方便的函数，自行查看使用
