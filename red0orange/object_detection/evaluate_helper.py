@@ -6,6 +6,7 @@ from PIL import Image
 from .utils import *
 from .file_helper import parse_txt_to_array
 from .plot_helper import plt_show_array
+from .metrics import *
 
 from ..file import *
 
@@ -61,6 +62,9 @@ def pack_valid_data_to_evaluate(valid_csv_path, predict_txt_root, save_root):
 
 class EvaluateData(object):
     """封装了用于评估的数据对象
+    这个对象定义了结果的标准格式，通过这一层约束，后续的分析都只能使用该对象作为输入，受到限制的同时接口统一了
+
+    标准格式：真实pixel尺度、xyxy坐标格式、target columns顺序(class_id, crood_1, crood_2, crood_3, crood_4)、pred columns顺序(class_id, crood_1, crood_2, crood_3, crood_4, conf)
     """
     # flags
     TARGET = 0
@@ -69,10 +73,15 @@ class EvaluateData(object):
     XYXY2XYWH = 0
     XYWH2XYXY = 1
 
-    SCALE2REAL = 0
-    SCALE2NORMAL = 1
+    SCALE2NORMAL = 0
+    SCALE2PIXEL = 1
 
-    def __init__(self, image_paths, target_txt_paths, predict_txt_paths, target_boxes_column_order, predict_boxes_column_order) -> None:
+    def __init__(self, image_paths, 
+                 target_txt_paths, predict_txt_paths, 
+                 target_boxes_column_order=None, predict_boxes_column_order=None,
+                 target_crood_format=None, pred_crood_format=None,
+                 target_scale=None, pred_scale=None
+                 ) -> None:
         """构造函数
 
         Args:
@@ -81,7 +90,10 @@ class EvaluateData(object):
             predict_txt_paths (list): 预测结果txt文件路径列表
             target_boxes_column_order (list): 改变标注txt数据的列顺序，保证数据为5列，且顺序为(class_id, crood_1, crood_2, crood_3, crood_4), crood表示仍不确定是xyxy或xywh，例子为[0, 1, 2, 3, 4]代表不需要更换数据顺序
             predict_boxes_column_order (list): 改变预测结果txt数据的列顺序，保证数据为6列，且顺序为(class_id, crood_1, crood_2, crood_3, crood_4, conf), crood表示仍不确定是xyxy或xywh，例子为[0, 1, 2, 3, 4, 5]代表不需要更换数据顺序
-
+            target_crood_format (str): "xyxy" 或 "xywh", xyxy代表(x1, y1, x2, y2)格式，xywh代表(center_x, center_y, width, height)格式
+            pred_crood_format (str): 
+            target_scale (str): "normalized" 或 "pixel"，归一化尺度或像素尺度
+            pred_scale (str): 
         """
         super().__init__()
         self.image_paths = image_paths
@@ -89,10 +101,33 @@ class EvaluateData(object):
         self.predict_txt_paths = predict_txt_paths
 
         self.target_boxes = [parse_txt_to_array(i) for i in self.target_txt_paths]
-        self.target_boxes = [i[:, target_boxes_column_order] if len(i) > 0 else i for i in self.target_boxes]
-
         self.predict_boxes = [parse_txt_to_array(i) for i in self.predict_txt_paths]
-        self.predict_boxes = [i[:, predict_boxes_column_order] if len(i) > 0 else i for i in self.predict_boxes]
+
+        # change column order
+        if target_boxes_column_order is not None:
+            self.target_boxes = [i[:, target_boxes_column_order] if len(i) > 0 else i for i in self.target_boxes]
+        if predict_boxes_column_order is not None:
+            self.predict_boxes = [i[:, predict_boxes_column_order] if len(i) > 0 else i for i in self.predict_boxes]
+        
+        # change crood format
+        if target_crood_format is None or target_crood_format == "xyxy": pass
+        elif target_crood_format == "xywh":
+            self.apply_crood_transform_to_boxes(self.TARGET, self.XYWH2XYXY)
+        else: raise BaseException("error format input.")
+        if pred_crood_format is None or pred_crood_format == "xyxy": pass
+        elif pred_crood_format == "xywh":
+            self.apply_crood_transform_to_boxes(self.PREDICT, self.XYWH2XYXY)
+        else: raise BaseException("error format input.")
+
+        # change scale
+        if target_scale is None or target_scale == "pixel": pass
+        elif target_scale == "normalized":
+            self.apply_scale_to_boxes(self.TARGET, self.SCALE2PIXEL)
+        else: raise BaseException("error format input.")
+        if pred_scale is None or pred_scale == "pixel": pass
+        elif pred_scale == "normalized":
+            self.apply_scale_to_boxes(self.PREDICT, self.SCALE2PIXEL)
+        else: raise BaseException("error format input.")
         pass
 
     def show_box(self, image_indexes, pred_indexes=None, target_indexes=None, figsize_ratio=1):
@@ -214,7 +249,7 @@ class EvaluateData(object):
             input_boxes = self.predict_boxes
 
         method_func = None
-        if which_method == self.SCALE2REAL:
+        if which_method == self.SCALE2PIXEL:
             def tmp_func(box, image_width, image_height):
                 box[:, [1, 3]] *= image_width
                 box[:, [2, 4]] *= image_height
@@ -286,3 +321,95 @@ class EvaluateData(object):
         predict_txt_paths = [os.path.join(predict_txt_root, i + ".txt") for i in image_names]
 
         return cls(image_paths, target_txt_paths, predict_txt_paths, *args, **kwargs )
+
+
+class ResultClassAnalyst(object):
+    """用于分析检测结果的分类问题的封装类
+
+    """
+
+    def __init__(self, evaluate_data, class_dict) -> None:
+        all_tp, all_pred_cls, all_pred_conf, all_target_cls, all_have_match_pred, all_have_match_target, all_pred_match_target, all_ious = error_analysis_basic(46, evaluate_data.predict_boxes, evaluate_data.target_boxes, iou_thres=0.6)
+        self.all_tp = all_tp
+        self.all_pred_cls = all_pred_cls
+        self.all_pred_conf = all_pred_conf
+        self.all_target_cls = all_target_cls
+        self.all_have_match_pred = all_have_match_pred
+        self.all_have_match_target = all_have_match_target
+        self.all_pred_match_target = all_pred_match_target
+        self.all_ious = all_ious
+
+        # 构建一个df来记录所有匹配的box
+        i = []
+        df_data = []
+        df_columns = ["image_name", "pred_cls", "pred_conf", "target_cls", "iou", "pred_cls_id", "target_cls_id", "image_id", "pred_box_id", "target_box_id"]
+
+        for image_i, (pred_cls, pred_conf, target_cls, pred_match_target, ious, have_match_pred) in enumerate(zip(all_pred_cls, all_pred_conf, all_target_cls, all_pred_match_target, all_ious, all_have_match_pred)):
+            have_match_indexes = have_match_pred.nonzero(as_tuple=False)
+            for index in have_match_indexes:
+                i.append("{}_{}".format(image_i, int(pred_match_target[index])))
+                df_data.append([
+                    os.path.basename(evaluate_data.image_paths[image_i]), 
+                    class_dict[int(pred_cls[index])], 
+                    float(pred_conf[index]), 
+                    class_dict[int(target_cls[pred_match_target[index]])], 
+                    float(ious[index]), 
+                    int(pred_cls[index]),
+                    int(target_cls[pred_match_target[index]]),
+                    image_i, 
+                    int(index), 
+                    int(pred_match_target[index])
+                ])
+
+        self.df = pd.DataFrame(data=df_data, index=None, columns=df_columns)
+        super().__init__()
+    
+    def get_no_match_num(self):
+        sum_no_match_pred = 0
+        sum_pred = 0
+        sum_no_match_pred_conf = 0
+        for have_match_pred, pred_conf in zip(self.all_have_match_pred, self.all_pred_conf):
+            sum_no_match_pred += sum(have_match_pred == 0)
+            sum_no_match_pred_conf += sum(pred_conf[have_match_pred == 0])
+            sum_pred += len(have_match_pred)
+        print("无匹配target的pred box数量：", sum_no_match_pred)
+        print("总pred box数量: ", sum_pred)
+
+        sum_no_match_target = 0
+        sum_target = 0
+        for have_match_target in self.all_have_match_target:
+            sum_no_match_target += sum(have_match_target == 0)
+            sum_target += len(have_match_target)
+        print("无匹配pred的target box数量：", sum_no_match_target)
+        print("总target box数量: ", sum_target)
+
+        return int(sum_no_match_pred), int(sum_pred), int(sum_no_match_target), int(sum_target)
+
+    def analysis_error_num(self):
+        print("存在匹配target box的所有pred box中，被预测类别正确的比例: ", len(self.df[self.df["pred_cls_id"]==self.df["target_cls_id"]]) / len(self.df))
+        each_target_box_group = self.df.groupby(["image_id", "target_box_id"])
+        def analysis_each_target_box(sub_df):
+            if_have_correct_pred_box = False
+            correct_pred_box_index = -1
+            correct_pred_box_conf = -1
+            target_cls = sub_df["target_cls"].iloc[0]
+            pred_classes = []
+            
+            sub_df = sub_df.sort_values(by = 'pred_conf', ascending=True)
+            for i, (index, row) in enumerate(sub_df.iterrows()):
+                pred_classes.append(row["pred_cls"])
+                if row["pred_cls"] == row["target_cls"]:
+                    if_have_correct_pred_box = True
+                    correct_pred_box_index = len(sub_df) - i
+                    correct_pred_box_conf = row["pred_conf"]
+            pred_classes = pred_classes[::-1]
+            return pd.Series({
+                "是否有正确的预测框": if_have_correct_pred_box, 
+                "正确预测框的conf排位": correct_pred_box_index, 
+                "正确预测框的conf": correct_pred_box_conf, 
+                "真实target类别": target_cls,
+                "预测框类别": pred_classes
+                })
+        each_target_box_group_df = each_target_box_group.apply(analysis_each_target_box)
+        print("存在匹配pred box的所有target box中，被预测类别正确的比例: ", len(each_target_box_group_df[(each_target_box_group_df["是否有正确的预测框"] == True) & each_target_box_group_df["正确预测框的conf排位"] == 1]) / len(each_target_box_group_df))
+        pass
