@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="red0orange", # Replace with your own username
-    version="1.0.0",
+    version="1.0.1",
     author="red0orange",
     author_email="huangdehao919@gmail.com",
     description="red0orange first pypi package",
