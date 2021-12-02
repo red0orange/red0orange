@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 from PIL import Image
 
 from .utils import *
+from .metrics import *
 from .file_helper import parse_txt_to_array
 from .plot_helper import plt_show_array
 
@@ -313,3 +314,109 @@ class EvaluateData(object):
         predict_txt_paths = [os.path.join(predict_txt_root, i + ".txt") for i in image_names]
 
         return cls(image_paths, target_txt_paths, predict_txt_paths, *args, **kwargs )
+
+
+class ResultClassAnalyst(object):
+
+    def __init__(self, evaluate_data, class_dict) -> None:
+        self.evaluate_data = evaluate_data
+        self.class_dict = class_dict
+
+        all_tp, all_pred_cls, all_pred_conf, all_target_cls, all_have_match_pred, all_have_match_target, all_pred_match_target, all_ious = error_analysis_basic(46, evaluate_data.predict_boxes, evaluate_data.target_boxes, iou_thres=0.6)
+        self.all_pred_cls = all_pred_cls
+        self.all_pred_conf = all_pred_conf
+        self.all_target_cls = all_target_cls
+        self.all_have_match_pred = all_have_match_pred
+        self.all_have_match_target = all_have_match_target
+        self.all_pred_match_target = all_pred_match_target
+        self.all_ious = all_ious
+
+        # 构建df来记录所有匹配的box
+        i = []
+        df_data = []
+        df_columns = ["image_name", "pred_cls", "pred_conf", "target_cls", "iou", "pred_cls_id", "target_cls_id", "image_id", "pred_box_id", "target_box_id"]
+        for image_i, (pred_cls, pred_conf, target_cls, pred_match_target, ious, have_match_pred) in enumerate(zip(all_pred_cls, all_pred_conf, all_target_cls, all_pred_match_target, all_ious, all_have_match_pred)):
+            have_match_indexes = have_match_pred.nonzero(as_tuple=False)
+            for index in have_match_indexes:
+                i.append("{}_{}".format(image_i, int(pred_match_target[index])))
+                df_data.append([
+                    os.path.basename(evaluate_data.image_paths[image_i]), 
+                    class_dict[int(pred_cls[index])], 
+                    float(pred_conf[index]), 
+                    class_dict[int(target_cls[pred_match_target[index]])], 
+                    float(ious[index]), 
+                    int(pred_cls[index]),
+                    int(target_cls[pred_match_target[index]]),
+                    image_i, 
+                    int(index), 
+                    int(pred_match_target[index])
+                ])
+        self.pred_df = pd.DataFrame(data=df_data, index=None, columns=df_columns)
+
+        # 构建target的df
+        def analysis_each_target_box(sub_df):
+            global debug_i
+            if_have_correct_pred_box = False
+            correct_pred_box_index = -1
+            correct_pred_box_conf = -1
+            target_cls = sub_df["target_cls"].iloc[0]
+            pred_classes = []
+            
+            sub_df = sub_df.sort_values(by = 'pred_conf', ascending=True)
+            for i, (index, row) in enumerate(sub_df.iterrows()):
+                pred_classes.append(row["pred_cls"])
+                if row["pred_cls"] == row["target_cls"]:
+                    if_have_correct_pred_box = True
+                    correct_pred_box_index = len(sub_df) - i
+                    correct_pred_box_conf = row["pred_conf"]
+            pred_classes = pred_classes[::-1]
+            return pd.Series({
+                "是否有正确的预测框": if_have_correct_pred_box, 
+                "正确预测框的conf排位": correct_pred_box_index, 
+                "正确预测框的conf": correct_pred_box_conf, 
+                "真实target类别": target_cls,
+                "预测框类别": pred_classes
+                })
+        each_target_box_group = self.pred_df.groupby(["image_id", "target_box_id"])
+        self.target_df = each_target_box_group.apply(analysis_each_target_box)
+        pass
+
+    def get_no_match_num(self):
+        sum_no_match_pred = 0
+        sum_pred = 0
+        sum_no_match_pred_conf = 0
+        for have_match_pred, pred_conf in zip(self.all_have_match_pred, self.all_pred_conf):
+            sum_no_match_pred += sum(have_match_pred == 0)
+            sum_no_match_pred_conf += sum(pred_conf[have_match_pred == 0])
+            sum_pred += len(have_match_pred)
+        
+        sum_no_match_target = 0
+        sum_target = 0
+        for have_match_target in self.all_have_match_target:
+            sum_no_match_target += sum(have_match_target == 0)
+            sum_target += len(have_match_target)
+        
+        print("无匹配target的pred box数量: {}".format(int(sum_no_match_pred)))
+        print("总pred box数量: {}".format(int(sum_pred)))
+        print("无匹配pred的target box数量: {}".format(int(sum_no_match_target)))
+        print("总target box数量: {}".format(int(sum_target)))
+        pass
+
+    def analysis_error_num(self):
+        pred_correct_num = sum(self.pred_df["pred_cls_id"] == self.pred_df["target_cls_id"])
+        pred_num = len(self.pred_df)
+        print("存在匹配target box的所有pred box中，预测类别正确的比例: {:.2f}".format(pred_correct_num / pred_num))
+
+        target_correct_num = sum(self.target_df["正确预测框的conf排位"] == 1)
+        target_num = len(self.target_df)
+        print("存在匹配pred box的所有target box中，被预测类别正确(置信度第一的pred box预测正确)的比例: {:.2f}".format(target_correct_num / target_num))
+
+        correct_num = sum(self.target_df["是否有正确的预测框"] == True)
+        num = len(self.target_df)
+        print("存在匹配pred box的所有target box中，存在预测类别正确(不管正确pred box置信度排名)的比例: {:.2f}".format(correct_num / num))
+
+        ratio = sum(self.target_df["正确预测框的conf排位"] == 2) / sum((self.target_df["是否有正确的预测框"] == True) & (self.target_df["正确预测框的conf排位"] != 1))
+        mean_score = np.mean(self.target_df[self.target_df["正确预测框的conf排位"] == 2]["正确预测框的conf"])
+        print("存在匹配pred box的所有target box中，第二置信度pred box预测正确占所有非第一置信度预测正确pred box的比例: {:.4f}".format(ratio))
+        print("存在匹配pred box的所有target box中，第二置信度pred box预测正确的score平均值: {:.4f}".format(mean_score))
+        pass
