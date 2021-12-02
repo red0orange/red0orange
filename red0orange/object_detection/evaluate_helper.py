@@ -69,10 +69,14 @@ class EvaluateData(object):
     XYXY2XYWH = 0
     XYWH2XYXY = 1
 
-    SCALE2REAL = 0
+    SCALE2PIXEL = 0
     SCALE2NORMAL = 1
 
-    def __init__(self, image_paths, target_txt_paths, predict_txt_paths, target_boxes_column_order, predict_boxes_column_order) -> None:
+    def __init__(self, image_paths, target_txt_paths, predict_txt_paths, 
+                    target_boxes_column_order=(0, 1, 2, 3, 4), pred_boxes_column_order=(0, 1, 2, 3, 4, 5),
+                    target_crood_format="xyxy", pred_crood_format="xyxy", 
+                    target_scale="pixel", pred_scale="pixel"
+                    ) -> None:
         """构造函数
 
         Args:
@@ -81,18 +85,41 @@ class EvaluateData(object):
             predict_txt_paths (list): 预测结果txt文件路径列表
             target_boxes_column_order (list): 改变标注txt数据的列顺序，保证数据为5列，且顺序为(class_id, crood_1, crood_2, crood_3, crood_4), crood表示仍不确定是xyxy或xywh，例子为[0, 1, 2, 3, 4]代表不需要更换数据顺序
             predict_boxes_column_order (list): 改变预测结果txt数据的列顺序，保证数据为6列，且顺序为(class_id, crood_1, crood_2, crood_3, crood_4, conf), crood表示仍不确定是xyxy或xywh，例子为[0, 1, 2, 3, 4, 5]代表不需要更换数据顺序
-
+            target_crood_format (str): 输入的target box列的顺序，"xyxy"代表格式为(x1, y1, x2, y2)，"xywh"代表格式为(center_x, center_y, width, height)
+            pred_crood_format (str): 输入的pred box列的顺序，"xyxy"代表格式为(x1, y1, x2, y2)，"xywh"代表格式为(center_x, center_y, width, height)
+            target_scale (str): 输入的target box的尺度，"pixel"代表为像素尺度，"normalize"代表为归一化尺度
+            pred_scale (str): 输入的pred box的尺度，"pixel"代表为像素尺度，"normalize"代表为归一化尺度
         """
         super().__init__()
         self.image_paths = image_paths
         self.target_txt_paths = target_txt_paths
         self.predict_txt_paths = predict_txt_paths
 
+        # 转换列的顺序
         self.target_boxes = [parse_txt_to_array(i) for i in self.target_txt_paths]
         self.target_boxes = [i[:, target_boxes_column_order] if len(i) > 0 else i for i in self.target_boxes]
-
         self.predict_boxes = [parse_txt_to_array(i) for i in self.predict_txt_paths]
-        self.predict_boxes = [i[:, predict_boxes_column_order] if len(i) > 0 else i for i in self.predict_boxes]
+        self.predict_boxes = [i[:, pred_boxes_column_order] if len(i) > 0 else i for i in self.predict_boxes]
+
+        # 转换坐标格式
+        if target_crood_format == "xyxy": pass
+        elif target_crood_format == "xywh":
+            self.apply_crood_transform_to_boxes(self.TARGET, self.XYWH2XYXY)
+        else: raise BaseException("error input format")
+        if pred_crood_format == "xyxy": pass
+        elif pred_crood_format == "xywh":
+            self.apply_crood_transform_to_boxes(self.PREDICT, self.XYWH2XYXY)
+        else: raise BaseException("error input format")
+
+        # 转换尺度
+        if target_scale == "pixel": pass
+        elif target_scale == "normalized":
+            self.apply_scale_to_boxes(self.TARGET, self.SCALE2PIXEL)
+        else: raise BaseException("error input format")
+        if pred_scale == "pixel": pass
+        elif pred_scale == "normalized":
+            self.apply_scale_to_boxes(self.PREDICT, self.SCALE2PIXEL)
+        else: raise BaseException("error input format")
         pass
 
     def show_box(self, image_indexes, pred_indexes=None, target_indexes=None, figsize_ratio=1):
@@ -214,7 +241,7 @@ class EvaluateData(object):
             input_boxes = self.predict_boxes
 
         method_func = None
-        if which_method == self.SCALE2REAL:
+        if which_method == self.SCALE2PIXEL:
             def tmp_func(box, image_width, image_height):
                 box[:, [1, 3]] *= image_width
                 box[:, [2, 4]] *= image_height
