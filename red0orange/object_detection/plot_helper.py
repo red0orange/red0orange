@@ -51,10 +51,10 @@ def plt_show_array(image_array, boxes=None, color=None, labels=None, axe=None, f
             if labels[i] is not None:
                 label = str(labels[i])
                 # For the text background
-                (w, h), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 1)
+                (w, h), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.9, 1)
                 # Prints the text.    
-                result_array = cv2.rectangle(result_array, (x1, y1 - 20), (x1 + w, y1), color[i], -1)
-                result_array = cv2.putText(result_array, label, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+                result_array = cv2.rectangle(result_array, (x1, y1 - 30), (x1 + w, y1), color[i], -1)
+                result_array = cv2.putText(result_array, label, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
 
     result_array = result_array[..., ::-1]
     axe.imshow(result_array)
