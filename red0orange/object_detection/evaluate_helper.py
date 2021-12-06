@@ -8,6 +8,7 @@ from .metrics import *
 from .file_helper import parse_txt_to_array
 from .plot_helper import plt_show_array
 
+from ..plot import plot_confusion_matrix
 from ..file import *
 
 
@@ -123,7 +124,7 @@ class EvaluateData(object):
         else: raise BaseException("error input format")
         pass
 
-    def show_box(self, image_indexes, pred_indexes=None, target_indexes=None, figsize_ratio=1):
+    def show_box(self, image_indexes, pred_indexes=None, target_indexes=None, class_dict=None, figsize_ratio=1):
         """在选定图中绘制选定矩形框或所有矩形框进行可视化
 
         Args:
@@ -164,10 +165,10 @@ class EvaluateData(object):
             draw_pred_boxes = pred_boxes[pred_boxes_indexes, 1:5] 
             draw_pred_boxes_ids = pred_boxes[pred_boxes_indexes, 0] 
             draw_pred_boxes_confs = pred_boxes[pred_boxes_indexes, -1] 
-            draw_pred_boxes_labels = ["{} - {:.3f}".format(int(i), j) for i, j in zip(draw_pred_boxes_ids, draw_pred_boxes_confs)]
+            draw_pred_boxes_labels = ["{} {} - {:.3f}".format(int(i), "" if class_dict is None else class_dict[int(i)], j) for i, j in zip(draw_pred_boxes_ids, draw_pred_boxes_confs)]
             draw_target_boxes = target_boxes[target_boxes_indexes, 1:5]
             draw_target_boxes_ids = target_boxes[target_boxes_indexes, 0] 
-            draw_target_boxes_labels = ["{}".format(int(i)) for i in draw_target_boxes_ids]
+            draw_target_boxes_labels = ["{} {}".format(int(i), "" if class_dict is None else class_dict[int(i)]) for i in draw_target_boxes_ids]
 
             if len(draw_pred_boxes) == 0:  draw_pred_boxes = np.zeros([0, 4])
             if len(draw_target_boxes) == 0: draw_target_boxes = np.zeros([0, 4])
@@ -405,18 +406,29 @@ class ResultClassAnalyst(object):
     def analysis_error_num(self):
         pred_correct_num = sum(self.pred_df["pred_cls_id"] == self.pred_df["target_cls_id"])
         pred_num = len(self.pred_df)
-        print("存在匹配target box的所有pred box中，预测类别正确的比例: {:.2f}".format(pred_correct_num / pred_num))
+        print("存在匹配target box的所有pred box中，预测类别正确的比例: {:.4f}".format(pred_correct_num / pred_num))
 
         target_correct_num = sum(self.target_df["正确预测框的conf排位"] == 1)
         target_num = len(self.target_df)
-        print("存在匹配pred box的所有target box中，被预测类别正确(置信度第一的pred box预测正确)的比例: {:.2f}".format(target_correct_num / target_num))
+        print("存在匹配pred box的所有target box中，被预测类别正确(置信度第一的pred box预测正确)的比例: {:.4f}".format(target_correct_num / target_num))
 
         correct_num = sum(self.target_df["是否有正确的预测框"] == True)
         num = len(self.target_df)
-        print("存在匹配pred box的所有target box中，存在预测类别正确(不管正确pred box置信度排名)的比例: {:.2f}".format(correct_num / num))
+        print("存在匹配pred box的所有target box中，存在预测类别正确(不管正确pred box置信度排名)的比例: {:.4f}".format(correct_num / num))
 
         ratio = sum(self.target_df["正确预测框的conf排位"] == 2) / sum((self.target_df["是否有正确的预测框"] == True) & (self.target_df["正确预测框的conf排位"] != 1))
         mean_score = np.mean(self.target_df[self.target_df["正确预测框的conf排位"] == 2]["正确预测框的conf"])
         print("存在匹配pred box的所有target box中，第二置信度pred box预测正确占所有非第一置信度预测正确pred box的比例: {:.4f}".format(ratio))
         print("存在匹配pred box的所有target box中，第二置信度pred box预测正确的score平均值: {:.4f}".format(mean_score))
         pass
+
+    def plot_target_df_error_confuse_matrix(self, df=None, query=None, select_classes=None, figsize=(15, 15)):
+        if df is None: df = self.target_df
+        if query is None: query = "正确预测框的conf排位 != 1"
+        reverse_class_dict = {key: value for value, key in self.class_dict.items()}
+        preds = list(df.query(query)["预测框类别"])
+        preds = [reverse_class_dict[i[0]] for i in preds]
+        targets = list(df.query(query)["真实target类别"])
+        targets = [reverse_class_dict[i] for i in targets]
+        fig = plot_confusion_matrix(len(self.class_dict), list(self.class_dict.values()), preds, targets, select_classes=select_classes, figsize=figsize)
+        return fig
