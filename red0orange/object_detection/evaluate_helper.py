@@ -323,7 +323,7 @@ class ResultClassAnalyst(object):
         self.evaluate_data = evaluate_data
         self.class_dict = class_dict
 
-        all_tp, all_pred_cls, all_pred_conf, all_target_cls, all_have_match_pred, all_have_match_target, all_pred_match_target, all_ious = error_analysis_basic(46, evaluate_data.predict_boxes, evaluate_data.target_boxes, iou_thres=0.6)
+        all_tp, all_pred_cls, all_pred_conf, all_target_cls, all_have_match_pred, all_have_match_target, all_pred_match_target, all_ious = error_analysis_basic(len(self.class_dict), evaluate_data.predict_boxes, evaluate_data.target_boxes, iou_thres=0.6)
         self.all_pred_cls = all_pred_cls
         self.all_pred_conf = all_pred_conf
         self.all_target_cls = all_target_cls
