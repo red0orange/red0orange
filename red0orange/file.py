@@ -6,6 +6,7 @@
 """
 import os
 import csv
+import numpy as np
 import pandas as pd
 import mimetypes
 from pathlib import Path
@@ -80,6 +81,9 @@ def read_csv(csv_path):
         for line in reader:
             result.append(line)
     return result
+
+def read_txt(txt_path):
+    return np.loadtxt(txt_path, dtype=np.object).tolist()
 
 def write_txt(data, save_path):
     with open(save_path, "w") as f:

@@ -124,7 +124,7 @@ class EvaluateData(object):
         else: raise BaseException("error input format")
         pass
 
-    def show_box(self, image_indexes, pred_indexes=None, target_indexes=None, class_dict=None, figsize_ratio=1):
+    def show_box(self, image_indexes, pred_indexes=None, target_indexes=None, class_dict=None, show_labels=True, figsize_ratio=1):
         """在选定图中绘制选定矩形框或所有矩形框进行可视化
 
         Args:
@@ -165,16 +165,18 @@ class EvaluateData(object):
             draw_pred_boxes = pred_boxes[pred_boxes_indexes, 1:5] 
             draw_pred_boxes_ids = pred_boxes[pred_boxes_indexes, 0] 
             draw_pred_boxes_confs = pred_boxes[pred_boxes_indexes, -1] 
-            draw_pred_boxes_labels = ["{} {} - {:.3f}".format(int(i), "" if class_dict is None else class_dict[int(i)], j) for i, j in zip(draw_pred_boxes_ids, draw_pred_boxes_confs)]
+            draw_pred_boxes_labels = ["{} {} {} - {:.3f}".format(pred_boxes_indexes[index], int(i), "" if class_dict is None else class_dict[int(i)], j) for index, (i, j) in enumerate(zip(draw_pred_boxes_ids, draw_pred_boxes_confs))]
             draw_target_boxes = target_boxes[target_boxes_indexes, 1:5]
             draw_target_boxes_ids = target_boxes[target_boxes_indexes, 0] 
-            draw_target_boxes_labels = ["{} {}".format(int(i), "" if class_dict is None else class_dict[int(i)]) for i in draw_target_boxes_ids]
+            draw_target_boxes_labels = ["{} {} {}".format(target_boxes_indexes[index], int(i), "" if class_dict is None else class_dict[int(i)]) for index, i in enumerate(draw_target_boxes_ids)]
 
             if len(draw_pred_boxes) == 0:  draw_pred_boxes = np.zeros([0, 4])
             if len(draw_target_boxes) == 0: draw_target_boxes = np.zeros([0, 4])
             draw_boxes = np.concatenate([draw_pred_boxes, draw_target_boxes], axis=0)
             draw_color = [(20, 20, 255) for _ in range(len(draw_pred_boxes))] + [(20, 255, 20) for _ in range(len(draw_target_boxes))]
-            draw_labels = draw_pred_boxes_labels + draw_target_boxes_labels
+            if show_labels:
+                draw_labels = draw_pred_boxes_labels + draw_target_boxes_labels
+            else: draw_labels = None
             plt_show_array(image_array, draw_boxes, draw_color, draw_labels, axe=axe)
         
         fig.tight_layout()
@@ -286,6 +288,16 @@ class EvaluateData(object):
         """
         csv_data = read_csv(csv_path)
         image_paths, target_txt_paths, predict_txt_paths = [i[0] for i in csv_data], [i[1] for i in csv_data], [i[2] for i in csv_data]
+        return cls(image_paths, target_txt_paths, predict_txt_paths, *args, **kwargs)
+
+    @classmethod
+    def create_data_from_txt(cls, image_root, predict_root, label_root, image_txt, *args, **kwargs):
+        image_names = read_txt(image_txt)
+        image_paths = [os.path.join(image_root, i) for i in image_names]
+
+        file_names = [i.rsplit(".", maxsplit=1)[0] for i in image_names]
+        target_txt_paths = [os.path.join(label_root, i + ".txt") for i in file_names]
+        predict_txt_paths = [os.path.join(predict_root, i + ".txt") for i in file_names]
         return cls(image_paths, target_txt_paths, predict_txt_paths, *args, **kwargs)
     
     @classmethod

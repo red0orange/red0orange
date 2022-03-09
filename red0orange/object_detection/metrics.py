@@ -138,7 +138,7 @@ def compute_ap(recall, precision):
     return ap, mpre, mrec
 
 
-def cal_metrics(num_classes, preds, targets, iou_thres):
+def cal_metrics(num_classes, preds, targets, iou_thres, conf_thres=None):
     """计算目标检测的关键指标
 
     Args:
@@ -158,6 +158,11 @@ def cal_metrics(num_classes, preds, targets, iou_thres):
     targets = [torch.Tensor(i) for i in targets]
     preds = [i.cpu() for i in preds]
     targets = [i.cpu() for i in targets]
+
+    if conf_thres is not None:
+        # 置信度阈值设置
+        indexes = [i[:, -1] > conf_thres for i in preds]
+        preds = [preds[i][indexes[i]] for i in range(len(indexes))]
 
     all_tp = []
     all_pred_conf = []
@@ -256,6 +261,148 @@ def cal_metrics(num_classes, preds, targets, iou_thres):
     ap_class = ap_class.tolist()
 
     return ap_class, p, r, ap
+
+
+def cal_precision_recall_specificity(num_classes, preds, targets, iou_thres, conf_thres=None):
+    """弃用了，改为用cal_fix_metric
+    """
+    metric_dict = cal_fix_metric(num_classes, preds, targets, iou_thres, conf_thres)
+    return metric_dict["cls_count"], metric_dict["pred_count"], metric_dict["precision"], metric_dict["recall"], metric_dict["specificity"]
+
+def cal_fix_metric(num_classes, preds, targets, iou_thres, conf_thres=None):
+    """计算设定置信度阈值的一些指标
+
+    Args:
+        num_classes (_type_): _description_
+        preds (_type_): _description_
+        targets (_type_): _description_
+        iou_thres (_type_): _description_
+        conf_thres (_type_, optional): _description_. Defaults to None.
+
+    Returns:
+        _type_: _description_
+    """
+    results_metric_dict = {}
+
+    preds = [torch.Tensor(i) for i in preds]
+    targets = [torch.Tensor(i) for i in targets]
+    preds = [i.cpu() for i in preds]
+    targets = [i.cpu() for i in targets]
+    
+    if conf_thres is not None:
+        # 置信度阈值设置
+        indexes = [i[:, -1] > conf_thres for i in preds]
+        preds = [preds[i][indexes[i]] for i in range(len(indexes))]
+
+    all_tp = []
+    all_pred_conf = []
+    all_pred_cls = []
+    all_target_cls = []
+
+    cls_tp_num = torch.zeros(num_classes, dtype=torch.int)
+    cls_fp_num = torch.zeros(num_classes, dtype=torch.int)
+    cls_fn_num = torch.zeros(num_classes, dtype=torch.int)
+
+    cls_label_num = torch.zeros(num_classes, dtype=torch.int)
+    cls_pred_num = torch.zeros(num_classes, dtype=torch.int)
+
+    pred_sum = 0
+    label_sum = 0
+    match_sum = 0
+
+    assert len(preds) == len(targets), "输入大小不一致"
+    for image_i in range(len(preds)):
+        pred = preds[image_i]
+        labels = targets[image_i]
+
+        pred_sum += len(pred)
+        label_sum += len(labels)
+
+        # custom statistics per image
+        nl = len(labels)
+        tcls = labels[:, 0].tolist() if nl else []  # target class
+
+        tp = torch.zeros((pred.shape[0], 1), dtype=torch.int16)
+        pred_conf = torch.Tensor([])
+        pred_cls = torch.Tensor([])
+        target_cls = torch.Tensor([])
+        # Predictions
+        if len(pred) == 0 or nl == 0:
+            if nl:
+                # 如果有标注无预测
+                target_cls = labels[:, 0]
+                for per_label in tcls:
+                    cls_fn_num[int(per_label)] += 1
+                    cls_label_num[int(per_label)] += 1
+                pass
+            if len(pred):
+                # 如果有预测无标注
+                pred_conf = pred[:, 5]
+                pred_cls = pred[:, 0]
+                for per_pred_cls in pred[:, 5]:
+                    cls_fp_num[int(per_pred_cls)] += 1
+                    cls_pred_num[int(per_pred_cls)] += 1
+                pass
+        else:
+            # 如果都有，就正常计算下去
+            tp = torch.zeros((pred.shape[0], 1), dtype=torch.int16)
+            pred_conf = pred[:, 5]
+            pred_cls = pred[:, 0]
+            target_cls = labels[:, 0]
+
+            predn = pred.clone()
+            tcls_tensor = labels[:, 0]
+
+            # target boxes
+            tbox = labels[:, 1:5]
+
+            # 直接遍历
+            detected_set = set()
+            detected_pred = []
+            if pred.shape[0]:
+                ious, i = box_iou(predn[:, 1:5], tbox).max(1)  # ious是每个pred box与最匹配的target box的iou，i是最匹配target box的index
+                for j in (ious > iou_thres).nonzero(as_tuple=False):  # 遍历每个拥有匹配target box的pred box
+                    if pred[j, 0] == tcls_tensor[i[j]] and (i[j].item() not in detected_set):  # 如果类别匹配且该target box没被匹配过
+                        detected_set.add(i[j].item())
+                        detected_pred.append(j)
+                        cls_tp_num[int(pred[j, 0].item())] += 1
+                        tp[j] = 1
+                        if len(detected_set) == nl:  # all targets already located in image
+                            break
+                    pass
+                match_sum += len((ious > iou_thres).nonzero(as_tuple=False)) # 计算TN
+
+            for i in range(pred.shape[0]):
+                cls_pred_num[int(pred[i, 0].item())] += 1
+                if i not in detected_pred:
+                    cls_fp_num[int(pred[i, 0].item())] += 1
+                pass
+            for i in range(tcls_tensor.shape[0]):
+                cls_label_num[int(tcls_tensor[i].item())] += 1
+                if i not in detected_set:
+                    cls_fn_num[int(tcls_tensor[i].item())] += 1
+                pass
+        all_tp.append(tp)
+        all_pred_cls.append(pred_cls)
+        all_pred_conf.append(pred_conf)
+        all_target_cls.append(target_cls)
+
+    cls_tn_num = (pred_sum + label_sum - match_sum) - cls_tp_num - cls_fp_num - cls_fn_num
+    precision = np.array(cls_tp_num / (cls_tp_num + cls_fp_num))
+    recall    = np.array(cls_tp_num / (cls_tp_num + cls_fn_num))
+    f1 = np.array([2*(i*j)/(i+j) for i, j in zip(precision, recall)])
+    specificity = np.array(cls_tn_num / (cls_tn_num + cls_fp_num))
+    cls_count = np.array(cls_label_num)
+    pred_count = np.array(cls_pred_num)
+
+    results_metric_dict["cls_count"] = cls_count
+    results_metric_dict["pred_count"] = pred_count
+    results_metric_dict["precision"] = precision
+    results_metric_dict["recall"] = recall
+    results_metric_dict["f1"] = f1
+    results_metric_dict["specificity"] = specificity
+
+    return results_metric_dict
 
 
 def error_analysis_basic(num_classes, preds, targets, iou_thres):
