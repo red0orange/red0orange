@@ -124,6 +124,12 @@ class EvaluateData(object):
         else: raise BaseException("error input format")
         pass
 
+    def cal_metrics(self, num_classes, iou_thres, conf_thres):
+        return cal_metrics(num_classes, self.predict_boxes, self.target_boxes, iou_thres, conf_thres)
+
+    def cal_fix_metrics(self, num_classes, iou_thres, conf_thres):
+        return cal_fix_metric(num_classes, self.predict_boxes, self.target_boxes, iou_thres, conf_thres)
+
     def show_box(self, image_indexes, pred_indexes=None, target_indexes=None, class_dict=None, show_labels=True, figsize_ratio=1):
         """在选定图中绘制选定矩形框或所有矩形框进行可视化
 
